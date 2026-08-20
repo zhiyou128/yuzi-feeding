@@ -3,32 +3,35 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#f6f0e6" />
+  <meta name="theme-color" content="#ffffff" />
   <title>柚子辅食工作台</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=20260821" />
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <div>
-        <p class="eyebrow">YUZI / FEEDING NOTES</p>
-        <h1>柚子辅食工作台</h1>
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true"><i></i><b>•‿•</b></span>
+        <div>
+          <p class="eyebrow">YUZI FOOD CLUB</p>
+          <h1>柚子辅食工作台</h1>
+        </div>
       </div>
-      <div class="baby-chip" aria-label="宝宝信息"><span class="baby-dot"></span><span>柚子 · 7 月龄</span></div>
+      <div class="baby-chip" aria-label="宝宝信息"><span class="baby-avatar"><img src="assets/hero/yuzi-baby.webp" alt="" /></span><span class="baby-chip-label">柚子 · 7 月龄</span></div>
     </header>
 
     <main id="app" class="main-content" tabindex="-1"></main>
 
     <nav class="bottom-nav" aria-label="主导航">
-      <button class="nav-item is-active" data-page="today" type="button"><span class="nav-icon">日</span><span>今天</span></button>
-      <button class="nav-item" data-page="recipes" type="button"><span class="nav-icon">册</span><span>菜品</span></button>
-      <button class="nav-item" data-page="ingredients" type="button"><span class="nav-icon">叶</span><span>食材</span></button>
-      <button class="nav-item" data-page="prep" type="button"><span class="nav-icon">盒</span><span>备餐</span></button>
+      <button class="nav-item is-active" data-page="today" type="button"><span class="nav-icon">⌂</span><span>今天</span></button>
+      <button class="nav-item" data-page="recipes" type="button"><span class="nav-icon">◡</span><span>菜品</span></button>
+      <button class="nav-item" data-page="ingredients" type="button"><span class="nav-icon">◒</span><span>食材</span></button>
+      <button class="nav-item" data-page="prep" type="button"><span class="nav-icon">▣</span><span>备餐</span></button>
     </nav>
   </div>
 
   <div id="modal-root" aria-live="polite"></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="app.js"></script>
+  <script src="app.js?v=20260821"></script>
 </body>
 </html>
