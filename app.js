@@ -71,7 +71,7 @@ function clone(value) { return JSON.parse(JSON.stringify(value)); }
 function emptyDayMeals() { return { morning: null, afternoon: null }; }
 function normalizeState(raw) {
   const base = Object.assign({}, clone(initialState), raw);
-  base.ingredients = Array.isArray(base.ingredients) ? base.ingredients : clone(initialState.ingredients);
+  base.ingredients = (Array.isArray(base.ingredients) ? base.ingredients : clone(initialState.ingredients)).map(item => Object.assign({ photo: '' }, item));
   base.weekBasket = base.weekBasket || [];
   base.weekPlan = base.weekPlan || {};
   base.mealHistory = Array.isArray(base.mealHistory) ? base.mealHistory : [];
@@ -261,6 +261,11 @@ function showToast(message) { const toast = document.querySelector('#toast'); to
 function mealItems(meal) { return meal?.ingredients || []; }
 function mealCategoryItems(meal, category) { return mealItems(meal).filter(item => item.category === category); }
 function mealLabel(meal) { return meal?.title || (meal ? '手动记录的一餐' : '还没有记录'); }
+function ingredientNote(item) {
+  const systemNotes = ['备餐库存可记录', '来自菜品模板，尚未记录食用', '从餐食记录加入，状态待确认'];
+  if (item.note && !(item.status === 'tried' && systemNotes.includes(item.note))) return item.note;
+  return { tried: '已吃过', new: '尚未记录食用', observing: '排敏观察中', paused: '暂缓观察', pending: '状态待确认' }[item.status] || '暂无备注';
+}
 function inventoryLine(name) { return Object.prototype.hasOwnProperty.call(state.inventory, name) ? `${name}(库存${state.inventory[name]}份)` : name; }
 function ingredientImagePath(name) { return INGREDIENT_ILLUSTRATIONS[String(name || '').trim()] || ''; }
 function categoryTiles(meal) {
@@ -318,6 +323,29 @@ function renderToday() {
   const observingCount = state.ingredients.filter(i => i.status === 'observing').length;
   return `${dateNavigator()}${todayHero(triedCount, observingCount)}${mealCard('morning', '上午餐', '一顿简单的开始', '☀︎')}${mealCard('afternoon', '下午餐', '留一点时间给观察', '♨︎')}${todayOverview(observingCount)}<div class="tip-banner today-tip"><strong>记录原则</strong><br>这里只记录食材与当天状态，不自动判断营养或过敏。</div><div class="section-label"><h3>吃过的菜</h3><span>${state.mealHistory.length} 次</span></div>${state.mealHistory.length ? `<div class="history-list">${aggregateHistory().slice(0, 5).map(item => `<div class="card history-card"><div class="history-head"><strong>${esc(item.title)}</strong><span>${item.count} 次</span></div><div class="history-body">${item.dates.slice().reverse().slice(0, 3).map(d => `<span class="tag">${d}</span>`).join('')}</div><button class="text-btn" data-action="edit-cooknote" data-title="${esc(item.title)}" data-recipeid="${esc(item.recipeId || '')}" type="button">${item.recipeId ? '写做法' : ''}</button></div>`).join('')}</div>` : '<div class="muted-empty">记第一餐后，这里会显示吃过的菜。</div>'}`;
 }
+function historyDays() {
+  const days = new Map();
+  Object.entries(state.mealsByDate).forEach(([date, meals]) => {
+    if (meals?.morning || meals?.afternoon) days.set(date, meals);
+  });
+  state.mealHistory.forEach(meal => {
+    if (!meal?.date || days.has(meal.date)) return;
+    const fallback = days.get(meal.date) || emptyDayMeals();
+    fallback[meal.slot] = meal;
+    days.set(meal.date, fallback);
+  });
+  return [...days.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+}
+function historyMealLine(date, slot, meal) {
+  const label = slot === 'morning' ? '上午餐' : '下午餐';
+  if (!meal) return `<div class="timeline-meal is-empty"><span class="timeline-slot">${label}</span><span class="timeline-empty">未记录</span></div>`;
+  const foods = (meal.ingredients || []).map(item => item.name).filter(Boolean);
+  return `<button class="timeline-meal" data-action="open-history-date" data-date="${date}" data-slot="${slot}" type="button"><span class="timeline-slot">${label}</span><span class="timeline-meal-copy"><strong>${esc(mealLabel(meal))}</strong><small>${foods.length ? `食材：${esc(foods.join('、'))}` : '未填写食材'}</small></span><span class="timeline-arrow" aria-hidden="true">›</span></button>`;
+}
+function renderHistory() {
+  const days = historyDays();
+  return `<div class="page-intro history-intro"><div><p class="eyebrow">MEAL TIMELINE</p><h2>全部记录</h2><p>按日期回看每天实际吃过的餐食。</p></div></div><div class="history-toolbar"><button class="btn secondary" data-action="back-to-today" type="button">回到今天</button><span>${days.length} 天有记录</span></div>${days.length ? `<div class="meal-timeline">${days.map(([date, meals]) => `<section class="timeline-day"><div class="timeline-date"><strong>${esc(formatDate(dateFromKey(date)))}</strong><span>${date === dateKey() ? '今天' : date}</span></div>${historyMealLine(date, 'morning', meals.morning)}${historyMealLine(date, 'afternoon', meals.afternoon)}</section>`).join('')}</div>` : '<div class="muted-empty card">还没有餐食记录。先在“今天”页记录一餐吧。</div>'}`;
+}
 function recipeCard(recipe) {
   return `<article class="card recipe-card"><div class="recipe-top"><span class="recipe-seal" aria-hidden="true">${recipe.sample ? '样' : '菜'}</span><div><h3>${esc(recipe.title)}</h3><div class="recipe-meta">${esc(recipe.source || '手动保存')}${recipe.sample ? ' · 虚构示例' : ''}</div></div>${recipe.photo ? `<img class="photo-thumb recipe-photo" src="${recipe.photo}" alt="${esc(recipe.title)}照片" />` : ''}</div><div class="recipe-ingredients">${recipe.ingredients.map(item => `<span class="tag ${item.category === 'pending' ? 'pending' : ''}">${esc(item.name)} · ${categoryLabel(item.category)}</span>`).join('') || '<span class="tag pending">暂无食材</span>'}</div>${recipe.note ? `<div class="recipe-meta" style="margin-bottom:10px">${esc(recipe.note)}</div>` : ''}${recipe.cookNote ? `<div class="recipe-cooknote">做法：${esc(recipe.cookNote)}</div>` : ''}<div class="recipe-actions"><button class="icon-btn ${recipe.favorite ? 'favorite' : ''}" data-action="toggle-favorite" data-id="${recipe.id}" type="button">${recipe.favorite ? '★ 已收藏' : '☆ 收藏'}</button><button class="icon-btn" data-action="add-to-meal" data-id="${recipe.id}" data-slot="morning" type="button">加入上午餐</button><button class="icon-btn" data-action="add-to-meal" data-id="${recipe.id}" data-slot="afternoon" type="button">加入下午餐</button><button class="icon-btn" data-action="edit-cooknote" data-title="${esc(recipe.title)}" data-recipeid="${recipe.id}" type="button">做法</button><button class="icon-btn" data-action="open-url" data-url="${esc(recipe.url)}" type="button">打开教程</button><button class="icon-btn" data-action="edit-recipe" data-id="${recipe.id}" type="button">编辑</button></div></article>`;
 }
@@ -326,17 +354,18 @@ function renderRecipes() {
   return `<div class="page-intro"><div><p class="eyebrow">SAVED RECIPES</p><h2>菜品</h2><p>把教程链接和食材放在一起。</p></div></div><div class="toolbar"><button class="btn" data-action="add-recipe" type="button">+ 保存抖音教程</button></div><input class="search" aria-label="搜索已保存菜品" data-action="recipe-search" value="${esc(recipeQuery)}" placeholder="搜索菜名或食材" />${recipes.length ? recipes.map(recipeCard).join('') : '<div class="muted-empty card">还没有匹配的已保存菜品。<br>先保存一个教程链接吧。</div>'}`;
 }
 const ingredientTabs = [['tried', '已吃过'], ['new', '待尝试'], ['observing', '观察中'], ['paused', '暂缓观察'], ['pending', '待确认']];
-function ingredientIllustration(name) {
-  const path = ingredientImagePath(name);
+function ingredientIllustration(name, photo = '') {
+  const path = photo || ingredientImagePath(name);
   if (!path) return '';
   return `<span class="food-illustration"><img src="${path}" alt="${esc(name)}插画" width="384" height="384" loading="lazy" decoding="async" /><span class="food-illustration-fallback" aria-hidden="true">叶</span></span>`;
 }
 function ingredientCard(item, currentTab) {
-  const illustration = ingredientIllustration(item.name);
-  return `<div class="food-row"><div class="food-row-info ${illustration ? '' : 'without-illustration'}">${illustration}<div class="food-copy"><span class="food-name">${esc(item.name)}</span><span class="food-note">${esc(item.note || '暂无备注')}</span></div></div><div class="food-actions"><button data-action="edit-ingredient" data-id="${item.id}" type="button">编辑</button><button data-action="observe" data-id="${item.id}" type="button">记录状态</button></div>${dayProgressBar(item, currentTab)}</div>`;
+  const illustration = ingredientIllustration(item.name, item.photo);
+  return `<div class="food-row"><div class="food-row-info ${illustration ? '' : 'without-illustration'}">${illustration}<div class="food-copy"><span class="food-name">${esc(item.name)}</span><span class="food-note">${esc(ingredientNote(item))}</span></div></div><div class="food-actions"><button data-action="edit-ingredient" data-id="${item.id}" type="button">编辑</button><button data-action="observe" data-id="${item.id}" type="button">记录状态</button></div>${dayProgressBar(item, currentTab)}</div>`;
 }
 function ingredientForm(ingredient = null) {
-  return `<form id="ingredient-form"><div class="form-field"><label for="ing-name">食材名称（必填）</label><input id="ing-name" name="name" required placeholder="例如：牛肉" value="${esc(ingredient?.name || '')}" /></div><div class="form-field"><label for="ing-status">状态</label><select id="ing-status" name="status">${ingredientTabs.map(([value, label]) => `<option value="${value}" ${ingredient?.status === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><div class="form-field"><label for="ing-note">备注（可选）</label><input id="ing-note" name="note" placeholder="例如：6 月龄吃过" value="${esc(ingredient?.note || '')}" /></div><div class="modal-footer"><button class="btn secondary" data-action="close-modal" type="button">取消</button><button class="btn" type="submit">保存食材</button></div></form>`;
+  const selectedStatus = ingredient?.status || 'new';
+  return `<form id="ingredient-form"><div class="form-field"><label for="ing-name">食材名称（必填）</label><input id="ing-name" name="name" required placeholder="例如：牛肉" value="${esc(ingredient?.name || '')}" /></div><div class="form-field"><label for="ing-status">状态</label><select id="ing-status" name="status">${ingredientTabs.map(([value, label]) => `<option value="${value}" ${selectedStatus === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><div class="form-field"><label for="ing-note">备注（可选）</label><input id="ing-note" name="note" placeholder="例如：6 月龄吃过" value="${esc(ingredient?.note || '')}" /></div><div class="form-field"><label>食材图片（可选）</label>${photoField('ingredient', ingredient?.photo, ingredient?.id || '')}<p class="helper">新食材先保存，再打开编辑上传图片。</p></div><div class="modal-footer">${ingredient ? `<button class="btn danger" data-action="delete-ingredient" data-id="${esc(ingredient.id)}" type="button">删除食材</button>` : ''}<button class="btn secondary" data-action="close-modal" type="button">取消</button><button class="btn" type="submit">保存食材</button></div></form>`;
 }
 function openIngredientModal(ingredient = null) { openModal(ingredient ? '编辑食材' : '添加食材', ingredientForm(ingredient)); document.querySelector('#ingredient-form').dataset.id = ingredient?.id || ''; }
 function renameIngredientReferences(ingredientId, previousName, nextName) {
@@ -356,12 +385,25 @@ function renameIngredientReferences(ingredientId, previousName, nextName) {
     }
   });
 }
+function deleteIngredient(id) {
+  const item = state.ingredients.find(ingredient => ingredient.id === id); if (!item) return;
+  const duplicate = state.ingredients.some(ingredient => ingredient.id !== id && normalizeIngredientName(ingredient.name) === normalizeIngredientName(item.name));
+  const references = [
+    ...state.recipes.flatMap(recipe => recipe.ingredients.filter(entry => entry.ingredientId === id)),
+    ...Object.values(state.mealsByDate).flatMap(day => ['morning', 'afternoon'].flatMap(slot => (day?.[slot]?.ingredients || []).filter(entry => entry.ingredientId === id))),
+    ...state.observations.filter(observation => observation.ingredientId === id)
+  ].length;
+  const reason = duplicate ? '这是一个同名重复食材。' : references ? `它仍被 ${references} 条历史记录引用，删除后历史文字会保留，但食材档案会移除。` : '它目前没有关联记录。';
+  if (!window.confirm(`${reason}\n\n确定删除「${item.name}」吗？此操作不可自动恢复。`)) return;
+  state.ingredients = state.ingredients.filter(ingredient => ingredient.id !== id);
+  saveState(); closeModal(); ingredientTab = 'tried'; render(); showToast('食材已删除');
+}
 function saveIngredient(form) {
   const name = formDataValue(form, 'name'); if (!name) return;
   const data = { name, status: formDataValue(form, 'status') || 'new', note: formDataValue(form, 'note') };
   const id = form.dataset.id;
-  if (id) { const item = state.ingredients.find(i => i.id === id); if (item) { const previousName = item.name; item.name = data.name; item.status = data.status; item.note = data.note; if (previousName !== item.name) renameIngredientReferences(item.id, previousName, item.name); } }
-  else { state.ingredients.push({ id: uid('i'), name: data.name, status: data.status, note: data.note }); }
+  if (id) { const item = state.ingredients.find(i => i.id === id); if (item) { const duplicate = state.ingredients.find(other => other.id !== id && normalizeIngredientName(other.name) === normalizeIngredientName(data.name)); if (duplicate) { closeModal(); ingredientTab = duplicate.status; render(); showToast('已有同名食材，请编辑原记录'); return; } const previousName = item.name; item.name = data.name; item.status = data.status; item.note = data.note; if (previousName !== item.name) renameIngredientReferences(item.id, previousName, item.name); } }
+  else { const duplicate = ingredientByName(data.name); if (duplicate) { closeModal(); ingredientTab = duplicate.status; render(); showToast('已有同名食材，请编辑原记录'); return; } state.ingredients.push({ id: uid('i'), name: data.name, status: data.status, note: data.note, photo: '' }); }
   saveState(); closeModal(); ingredientTab = data.status; render(); showToast('食材已保存');
 }
 function dayProgressBar(item, currentTab) {
@@ -390,7 +432,7 @@ function renderPrep() {
   return `<div class="page-intro"><div><p class="eyebrow">PREP DRAWER</p><h2>备餐</h2><p>肉泥库存 · 每份按你自己的习惯计算。</p></div></div><div class="tip-banner"><strong>库存只做数量记录</strong><br>增加或减少一份，不关联食用结论。</div><div class="section-label"><h3>肉泥库存</h3><span>PROTEIN</span></div><div class="inventory">${foods.map(inventoryCard).join('')}</div><div class="section-label"><h3>本周菜篮</h3><span>${basketItems.length} 道</span></div><div class="tag-list">${state.recipes.filter(r => r.favorite).map(r => `<button class="tag ${state.weekBasket.includes(r.id) ? 'basket-in' : 'basket-out'}" data-action="toggle-basket" data-id="${r.id}" type="button">${state.weekBasket.includes(r.id) ? '✓ ' : '+ '}${esc(r.title)}</button>`).join('') || '<div class="muted-empty">先收藏几道菜，再来排这周。</div>'}</div><div class="toolbar" style="margin-top:14px"><button class="btn" data-action="auto-plan" type="button">自动排一周</button></div><div class="section-label"><h3>本周安排</h3><span>照做即可</span></div><div class="week-plan">${planCells}</div><div class="muted-empty card" style="margin-top:14px">排好后回到「今天」页记录当天实际吃的，四类搭配会自动带库存。</div>${renderBackup()}`;
 }
 function render() {
-  const pages = { today: renderToday, recipes: renderRecipes, ingredients: renderIngredients, prep: renderPrep };
+  const pages = { today: renderToday, history: renderHistory, recipes: renderRecipes, ingredients: renderIngredients, prep: renderPrep };
   const app = document.querySelector('#app');
   app.dataset.page = currentPage;
   app.innerHTML = pages[currentPage]();
@@ -549,7 +591,7 @@ function compressImage(file, callback) {
   reader.readAsDataURL(file);
 }
 function photoField(target, currentPhoto, id = '') {
-  return `<div class="photo-field">${currentPhoto ? `<img class="photo-thumb" src="${currentPhoto}" alt="照片缩略图" />` : ''}<div class="photo-actions"><input type="file" accept="image/*" data-target="${target}" ${'data-current="' + (currentPhoto ? '1' : '0') + '"'} class="photo-input" aria-label="选择照片" /><button class="icon-btn" data-action="remove-photo" data-target="${target}" data-id="${esc(id)}" type="button" ${currentPhoto ? '' : 'disabled'}>删除照片</button></div></div>`;
+  return `<div class="photo-field">${currentPhoto ? `<img class="photo-thumb" src="${currentPhoto}" alt="照片缩略图" />` : ''}<div class="photo-actions"><input type="file" accept="image/*" data-target="${target}" data-id="${esc(id)}" ${'data-current="' + (currentPhoto ? '1' : '0') + '"'} class="photo-input" aria-label="选择照片" /><button class="icon-btn" data-action="remove-photo" data-target="${target}" data-id="${esc(id)}" type="button" ${currentPhoto ? '' : 'disabled'}>删除照片</button></div></div>`;
 }
 function readPhotoInto(fileInput, key, id) {
   const file = fileInput.files && fileInput.files[0]; if (!file) return;
@@ -557,6 +599,7 @@ function readPhotoInto(fileInput, key, id) {
     if (!dataUrl) { showToast('无法读取这张图，换个试试'); return; }
     try {
       if (key === 'recipe') { const r = recipeById(id); if (r) r.photo = dataUrl; }
+      else if (key === 'ingredient') { const ingredient = state.ingredients.find(item => item.id === id); if (ingredient) ingredient.photo = dataUrl; }
       else if (key === 'observation') { const o = state.observations.find(x => x.id === id); if (o) o.photo = dataUrl; }
       saveState(); closeModal(); render(); showToast('照片已保存');
     } catch (e) { showToast('照片过大，已略过（本地存储已满）'); }
@@ -591,6 +634,7 @@ function importBackup(file) {
 }
 function removePhoto(target, id) {
   if (target === 'recipe') { const r = recipeById(id); if (r) { r.photo = ''; saveState(); } }
+  else if (target === 'ingredient') { const ingredient = state.ingredients.find(item => item.id === id); if (ingredient) { ingredient.photo = ''; saveState(); } }
   else if (target === 'observation') { const o = state.observations.find(x => x.id === id); if (o) { o.photo = ''; saveState(); } }
   render(); showToast('照片已删除');
 }
@@ -609,11 +653,15 @@ document.addEventListener('click', event => {
   if (action === 'confirm-update-recipe') updateRecipeFromMeal(button.dataset.slot);
   if (action === 'change-date') changeSelectedDate(Number(button.dataset.days));
   if (action === 'go-today') { selectedDate = dateKey(); render(); }
+  if (action === 'open-history') { currentPage = 'history'; render(); }
+  if (action === 'back-to-today') { currentPage = 'today'; selectedDate = dateKey(); render(); }
+  if (action === 'open-history-date') { currentPage = 'today'; selectedDate = button.dataset.date; render(); }
   if (action === 'ingredient-tab') { ingredientTab = button.dataset.tab; render(); }
   if (action === 'observe') openObservation(button.dataset.id);
   if (action === 'checkin') checkinObservation(button.dataset.id, Number(button.dataset.day));
   if (action === 'add-ingredient') openIngredientModal();
   if (action === 'edit-ingredient') openIngredientModal(state.ingredients.find(i => i.id === button.dataset.id));
+  if (action === 'delete-ingredient') deleteIngredient(button.dataset.id);
   if (action === 'inventory') { const food = button.dataset.food; state.inventory[food] = Math.max(0, state.inventory[food] + Number(button.dataset.change)); saveState(); render(); }
   if (action === 'toggle-basket') { const id = button.dataset.id; const i = state.weekBasket.indexOf(id); if (i >= 0) state.weekBasket.splice(i, 1); else state.weekBasket.push(id); saveState(); render(); showToast(i >= 0 ? '已移出菜篮' : '已加入菜篮'); }
   if (action === 'auto-plan') { if (autoPlanWeek()) { saveState(); render(); showToast('本周安排已生成'); } }
@@ -629,7 +677,7 @@ document.addEventListener('click', event => {
 });
 document.addEventListener('input', event => { if (event.target.dataset.action === 'recipe-search') { recipeQuery = event.target.value; renderRecipesInPlace(event.target); } });
 document.addEventListener('submit', event => { event.preventDefault(); if (event.target.id === 'recipe-form') handleRecipeForm(event.target); if (event.target.id === 'classification-form') { if (event.target.dataset.meal) saveClassifiedMeal(event.target); else saveClassified(event.target); } if (event.target.id === 'meal-form') saveMeal(event.target); if (event.target.id === 'observation-form') saveObservation(event.target); if (event.target.id === 'ingredient-form') saveIngredient(event.target); if (event.target.id === 'cooknote-form') saveCookNote(event.target); if (event.target.id === 'start-observation-form') startSelectedObservations(event.target); });
-document.addEventListener('change', event => { if (event.target.classList.contains('photo-input')) { const key = event.target.dataset.target === 'recipe' ? 'recipe' : 'observation'; readPhotoInto(event.target, key, event.target.dataset.id || (document.querySelector('#recipe-form')?.dataset.id)); } if (event.target.classList.contains('backup-input')) { importBackup(event.target.files && event.target.files[0]); event.target.value = ''; } });
+document.addEventListener('change', event => { if (event.target.classList.contains('photo-input')) { const key = event.target.dataset.target === 'recipe' ? 'recipe' : event.target.dataset.target === 'ingredient' ? 'ingredient' : 'observation'; const formId = event.target.closest('form')?.dataset.id; const id = event.target.dataset.id || formId; if (key === 'ingredient' && !id) showToast('请先保存食材，再上传图片'); else readPhotoInto(event.target, key, id); } if (event.target.classList.contains('backup-input')) { importBackup(event.target.files && event.target.files[0]); event.target.value = ''; } });
 document.addEventListener('error', event => {
   if (event.target.matches('.today-hero-character')) {
     const frame = event.target.closest('.hero-character-frame');
